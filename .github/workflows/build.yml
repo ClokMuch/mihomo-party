@@ -54,7 +54,7 @@ jobs:
           name: Windows ${{ matrix.arch }}
           path: |
             dist/*.sha256
-            dist/*setup.exe
+            # dist/*setup.exe
             dist/*portable.7z
           if-no-files-found: error
       - name: Publish Release
@@ -63,7 +63,7 @@ jobs:
         with:
           files: |
             dist/*.sha256
-            dist/*setup.exe
+            # dist/*setup.exe
             dist/*portable.7z
           body_path: changelog.md
           token: ${{ secrets.GITHUB_TOKEN }}
