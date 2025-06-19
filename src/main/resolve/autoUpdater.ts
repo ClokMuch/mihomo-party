@@ -27,7 +27,9 @@ export async function checkUpdate(): Promise<IAppVersion | undefined> {
   const latest = yaml.parse(res.data, { merge: true }) as IAppVersion
   const currentVersion = app.getVersion()
   if (latest.version !== currentVersion) {
-    return latest
+    // return latest
+    // Disable update
+    return undefined
   } else {
     return undefined
   }
