@@ -1,10 +1,10 @@
 {
-  "name": "mihomo-party",
+  "name": "neko",
   "version": "1.7.6",
-  "description": "Mihomo Party",
+  "description": "Neko",
   "main": "./out/main/index.js",
   "author": "mihomo-party-org",
-  "homepage": "https://mihomo.party",
+  "homepage": "https://neko/local",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
