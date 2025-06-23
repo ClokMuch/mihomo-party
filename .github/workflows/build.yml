@@ -63,7 +63,7 @@ jobs:
 
   updater:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, macos, windows7, macos10]
+    needs: [windows]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
