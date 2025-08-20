@@ -13,7 +13,7 @@ import { promisify } from 'util'
 export async function checkUpdate(): Promise<IAppVersion | undefined> {
   const { 'mixed-port': mixedPort = 7890 } = await getControledMihomoConfig()
   const res = await axios.get(
-    'https://github.com/mihomo-party-org/mihomo-party/releases/latest/download/latest.yml',
+    'https://github.com/ClokMuch/mihomo-party/releases/latest/download/latest.yml',
     {
       headers: { 'Content-Type': 'application/octet-stream' },
       proxy: {
