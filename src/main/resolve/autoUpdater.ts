@@ -35,7 +35,7 @@ export async function checkUpdate(): Promise<IAppVersion | undefined> {
 
 export async function downloadAndInstallUpdate(version: string): Promise<void> {
   const { 'mixed-port': mixedPort = 7890 } = await getControledMihomoConfig()
-  const baseUrl = `https://github.com/mihomo-party-org/mihomo-party/releases/download/v${version}/`
+  const baseUrl = `https://github.com/ClokMuch/mihomo-party/releases/download/v${version}/`
   const fileMap = {
     'win32-x64': `mihomo-party-windows-${version}-x64-setup.exe`,
     'win32-ia32': `mihomo-party-windows-${version}-ia32-setup.exe`,
