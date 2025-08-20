@@ -4,7 +4,7 @@ import SettingItem from '../base/base-setting-item'
 import { Button, Input, Select, SelectItem, Switch, Tooltip } from '@heroui/react'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
 import debounce from '@renderer/utils/debounce'
-import { getGistUrl, patchControledMihomoConfig, restartCore } from '@renderer/utils/ipc'
+import { getGistUrl, restartCore } from '@renderer/utils/ipc'
 import { MdDeleteForever } from 'react-icons/md'
 import { BiCopy } from 'react-icons/bi'
 import { IoIosHelpCircle } from 'react-icons/io'
@@ -16,8 +16,6 @@ const MihomoConfig: React.FC = () => {
   const { appConfig, patchAppConfig } = useAppConfig()
   const {
     diffWorkDir = false,
-    controlDns = true,
-    controlSniff = true,
     delayTestConcurrency,
     delayTestTimeout,
     githubToken = '',
@@ -193,36 +191,8 @@ const MihomoConfig: React.FC = () => {
           }}
         />
       </SettingItem>
-      <SettingItem title={t('mihomo.controlDns')} divider>
-        <Switch
-          size="sm"
-          isSelected={controlDns}
-          onValueChange={async (v) => {
-            try {
-              await patchAppConfig({ controlDns: v })
-              await patchControledMihomoConfig({})
-              await restartCore()
-            } catch (e) {
-              alert(e)
-            }
-          }}
-        />
-      </SettingItem>
-      <SettingItem title={t('mihomo.controlSniff')} divider>
-        <Switch
-          size="sm"
-          isSelected={controlSniff}
-          onValueChange={async (v) => {
-            try {
-              await patchAppConfig({ controlSniff: v })
-              await patchControledMihomoConfig({})
-              await restartCore()
-            } catch (e) {
-              alert(e)
-            }
-          }}
-        />
-      </SettingItem>
+
+
       <SettingItem title={t('mihomo.autoCloseConnection')} divider>
         <Switch
           size="sm"

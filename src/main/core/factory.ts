@@ -26,9 +26,23 @@ let runtimeConfig: IMihomoConfig
 
 export async function generateProfile(): Promise<void> {
   const { current } = await getProfileConfig()
-  const { diffWorkDir = false } = await getAppConfig()
+  const { diffWorkDir = false, controlDns = true, controlSniff = true, useNameserverPolicy } = await getAppConfig()
   const currentProfile = await overrideProfile(current, await getProfile(current))
-  const controledMihomoConfig = await getControledMihomoConfig()
+  let controledMihomoConfig = await getControledMihomoConfig()
+
+  // 根据开关状态过滤控制配置
+  controledMihomoConfig = { ...controledMihomoConfig }
+  if (!controlDns) {
+    delete controledMihomoConfig.dns
+    delete controledMihomoConfig.hosts
+  }
+  if (!controlSniff) {
+    delete controledMihomoConfig.sniffer
+  }
+  if (!useNameserverPolicy) {
+    delete controledMihomoConfig?.dns?.['nameserver-policy']
+  }
+
   const profile = deepMerge(currentProfile, controledMihomoConfig)
   // 确保可以拿到基础日志信息
   // 使用 debug 可以调试内核相关问题 `debug/pprof`
@@ -36,7 +50,16 @@ export async function generateProfile(): Promise<void> {
     profile['log-level'] = 'info'
   }
   runtimeConfig = profile
-  runtimeConfigStr = yaml.stringify(profile)
+  
+  // 先正常生成 YAML 字符串
+  let yamlStr = yaml.stringify(profile)
+  // 还原科学记数法的引号
+  yamlStr = yamlStr.replace(
+    /(\w+:\s*)"(\d+E\d+)"(\s|$)/gi,
+    '$1$2$3'
+  )
+  runtimeConfigStr = yamlStr
+  
   if (diffWorkDir) {
     await prepareProfileWorkDir(current)
   }

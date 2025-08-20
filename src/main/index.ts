@@ -3,26 +3,43 @@ import { registerIpcMainHandlers } from './utils/ipc'
 import windowStateKeeper from 'electron-window-state'
 import { app, shell, BrowserWindow, Menu, dialog, Notification, powerMonitor } from 'electron'
 import { addProfileItem, getAppConfig, patchAppConfig } from './config'
-import { quitWithoutCore, startCore, stopCore } from './core/manager'
+import { quitWithoutCore, startCore, stopCore, checkAdminRestartForTun, checkHighPrivilegeCore, restartAsAdmin } from './core/manager'
 import { triggerSysProxy } from './sys/sysproxy'
 import icon from '../../resources/icon.png?asset'
 import { createTray, hideDockIcon, showDockIcon } from './resolve/tray'
-import { init } from './utils/init'
+import { init, initBasic } from './utils/init'
 import { join } from 'path'
 import { initShortcut } from './resolve/shortcut'
-import { execSync, spawn, exec } from 'child_process'
-import { createElevateTask } from './sys/misc'
+import { spawn, exec } from 'child_process'
 import { promisify } from 'util'
 import { stat } from 'fs/promises'
 import { initProfileUpdater } from './core/profileUpdater'
-import { existsSync, writeFileSync } from 'fs'
-import { exePath, taskDir } from './utils/dirs'
-import path from 'path'
+import { existsSync } from 'fs'
+import { exePath } from './utils/dirs'
 import { startMonitor } from './resolve/trafficMonitor'
 import { showFloatingWindow } from './resolve/floatingWindow'
-import iconv from 'iconv-lite'
 import { initI18n } from '../shared/i18n'
 import i18next from 'i18next'
+import { logger } from './utils/logger'
+
+// 错误处理
+function showSafeErrorBox(titleKey: string, message: string): void {
+  let title: string
+  try {
+    title = i18next.t(titleKey)
+    if (!title || title === titleKey) throw new Error('Translation not ready')
+  } catch {
+    const isZh = app.getLocale().startsWith('zh')
+    const fallbacks: Record<string, { zh: string; en: string }> = {
+      'common.error.initFailed': { zh: '应用初始化失败', en: 'Application initialization failed' },
+      'mihomo.error.coreStartFailed': { zh: '内核启动出错', en: 'Core start failed' },
+      'profiles.error.importFailed': { zh: '配置导入失败', en: 'Profile import failed' },
+      'common.error.adminRequired': { zh: '需要管理员权限', en: 'Administrator privileges required' }
+    }
+    title = fallbacks[titleKey] ? (isZh ? fallbacks[titleKey].zh : fallbacks[titleKey].en) : (isZh ? '错误' : 'Error')
+  }
+  dialog.showErrorBox(title, message)
+}
 
 async function fixUserDataPermissions(): Promise<void> {
   if (process.platform !== 'darwin') return
@@ -50,39 +67,6 @@ async function fixUserDataPermissions(): Promise<void> {
 let quitTimeout: NodeJS.Timeout | null = null
 export let mainWindow: BrowserWindow | null = null
 
-if (process.platform === 'win32' && !is.dev && !process.argv.includes('noadmin')) {
-  try {
-    createElevateTask()
-  } catch (createError) {
-    try {
-      if (process.argv.slice(1).length > 0) {
-        writeFileSync(path.join(taskDir(), 'param.txt'), process.argv.slice(1).join(' '))
-      } else {
-        writeFileSync(path.join(taskDir(), 'param.txt'), 'empty')
-      }
-      if (!existsSync(path.join(taskDir(), 'mihomo-party-run.exe'))) {
-        throw new Error('mihomo-party-run.exe not found')
-      } else {
-        execSync('%SystemRoot%\\System32\\schtasks.exe /run /tn mihomo-party-run')
-      }
-    } catch (e) {
-      let createErrorStr = `${createError}`
-      let eStr = `${e}`
-      try {
-        createErrorStr = iconv.decode((createError as { stderr: Buffer }).stderr, 'gbk')
-        eStr = iconv.decode((e as { stderr: Buffer }).stderr, 'gbk')
-      } catch {
-        // ignore
-      }
-      dialog.showErrorBox(
-        i18next.t('common.error.adminRequired'),
-        `${i18next.t('common.error.adminRequired')}\n${createErrorStr}\n${eStr}`
-      )
-    } finally {
-      app.exit()
-    }
-  }
-}
 
 async function initApp(): Promise<void> {
   await fixUserDataPermissions()
@@ -129,7 +113,59 @@ if (process.platform === 'win32' && !exePath().startsWith('C')) {
   app.commandLine.appendSwitch('in-process-gpu')
 }
 
-const initPromise = init()
+// 运行内核检测
+async function checkHighPrivilegeCoreEarly(): Promise<void> {
+  if (process.platform !== 'win32') {
+    return
+  }
+
+  try {
+    await initBasic()
+
+    const { checkAdminPrivileges } = await import('./core/manager')
+    const isCurrentAppAdmin = await checkAdminPrivileges()
+
+    if (isCurrentAppAdmin) {
+      console.log('Current app is running as administrator, skipping privilege check')
+      return
+    }
+
+    const hasHighPrivilegeCore = await checkHighPrivilegeCore()
+    if (hasHighPrivilegeCore) {
+      try {
+        const appConfig = await getAppConfig()
+        const language = appConfig.language || (app.getLocale().startsWith('zh') ? 'zh-CN' : 'en-US')
+        await initI18n({ lng: language })
+      } catch {
+        await initI18n({ lng: 'zh-CN' })
+      }
+
+      const choice = dialog.showMessageBoxSync({
+        type: 'warning',
+        title: i18next.t('core.highPrivilege.title'),
+        message: i18next.t('core.highPrivilege.message'),
+        buttons: [i18next.t('common.confirm'), i18next.t('common.cancel')],
+        defaultId: 0,
+        cancelId: 1
+      })
+
+      if (choice === 0) {
+        try {
+          // Windows 平台重启应用获取管理员权限
+          await restartAsAdmin(false)
+          process.exit(0)
+        } catch (error) {
+          showSafeErrorBox('common.error.adminRequired', `${error}`)
+          process.exit(1)
+        }
+      } else {
+        process.exit(0)
+      }
+    }
+  } catch (e) {
+    console.error('Failed to check high privilege core:', e)
+  }
+}
 
 app.on('second-instance', async (_event, commandline) => {
   showMainWindow()
@@ -170,7 +206,11 @@ app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('party.mihomo.app')
 
+  await checkHighPrivilegeCoreEarly()
+
   try {
+    await init()
+
     const appConfig = await getAppConfig()
     // 如果配置中没有语言设置，则使用系统语言
     if (!appConfig.language) {
@@ -179,18 +219,20 @@ app.whenReady().then(async () => {
       appConfig.language = systemLanguage
     }
     await initI18n({ lng: appConfig.language })
-    await initPromise
   } catch (e) {
-    dialog.showErrorBox(i18next.t('common.error.initFailed'), `${e}`)
+    showSafeErrorBox('common.error.initFailed', `${e}`)
     app.quit()
   }
+
   try {
     const [startPromise] = await startCore()
     startPromise.then(async () => {
       await initProfileUpdater()
+      // 上次是否为了开启 TUN 而重启
+      await checkAdminRestartForTun()
     })
   } catch (e) {
-    dialog.showErrorBox(i18next.t('mihomo.error.coreStartFailed'), `${e}`)
+    showSafeErrorBox('mihomo.error.coreStartFailed', `${e}`)
   }
   try {
     await startMonitor()
@@ -208,7 +250,11 @@ app.whenReady().then(async () => {
   registerIpcMainHandlers()
   await createWindow()
   if (showFloating) {
-    showFloatingWindow()
+    try {
+      await showFloatingWindow()
+    } catch (error) {
+      await logger.error('Failed to create floating window on startup', error)
+    }
   }
   if (!disableTray) {
     await createTray()
@@ -242,7 +288,7 @@ async function handleDeepLink(url: string): Promise<void> {
         new Notification({ title: i18next.t('profiles.notification.importSuccess') }).show()
         break
       } catch (e) {
-        dialog.showErrorBox(i18next.t('profiles.error.importFailed'), `${url}\n${e}`)
+        showSafeErrorBox('profiles.error.importFailed', `${url}\n${e}`)
       }
     }
   }

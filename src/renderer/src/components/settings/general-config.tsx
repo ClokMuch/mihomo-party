@@ -48,6 +48,7 @@ const GeneralConfig: React.FC = () => {
     disableTray = false,
     showFloatingWindow: showFloating = false,
     spinFloatingIcon = true,
+    floatingWindowCompatMode = true,
     useWindowFrame = false,
     autoQuitWithoutCore = false,
     autoQuitWithoutCoreDelay = 60,
@@ -103,6 +104,14 @@ const GeneralConfig: React.FC = () => {
             isSelected={enable}
             onValueChange={async (v) => {
               try {
+                // 检查管理员权限
+                const hasAdminPrivileges = await window.electron.ipcRenderer.invoke('checkAdminPrivileges')
+
+                if (!hasAdminPrivileges) {
+                  const notification = new Notification(t('settings.autoStart.permissions'))
+                  notification.close()
+                }
+
                 if (v) {
                   await enableAutoRun()
                 } else {
@@ -155,19 +164,25 @@ const GeneralConfig: React.FC = () => {
         </SettingItem>
         {autoQuitWithoutCore && (
           <SettingItem title={t('settings.autoQuitWithoutCoreDelay')} divider>
-            <Input
-              size="sm"
-              className="w-[100px]"
-              type="number"
-              endContent={t('common.seconds')}
-              value={autoQuitWithoutCoreDelay.toString()}
-              onValueChange={async (v: string) => {
-                let num = parseInt(v)
-                if (isNaN(num)) num = 5
-                if (num < 5) num = 5
-                await patchAppConfig({ autoQuitWithoutCoreDelay: num })
-              }}
-            />
+            <div className="flex items-center gap-2">
+              <Input
+                size="sm"
+                className="w-[100px]"
+                type="number"
+                value={autoQuitWithoutCoreDelay.toString()}
+                onValueChange={async (v: string) => {
+                  let num = parseInt(v)
+                  await patchAppConfig({ autoQuitWithoutCoreDelay: num })
+                }}
+                onBlur={async (e) => {
+                  let num = parseInt(e.target.value)
+                  if (isNaN(num)) num = 5
+                  if (num < 5) num = 5
+                  await patchAppConfig({ autoQuitWithoutCoreDelay: num })
+                }}
+              />
+              <span className="text-default-500">{t('common.seconds')}</span>
+            </div>
           </SettingItem>
         )}
         <SettingItem
@@ -236,22 +251,43 @@ const GeneralConfig: React.FC = () => {
                 }}
               />
             </SettingItem>
-            <SettingItem title={t('settings.disableTray')} divider>
-              <Switch
-                size="sm"
-                isSelected={disableTray}
-                onValueChange={async (v) => {
-                  await patchAppConfig({ disableTray: v })
-                  if (v) {
-                    closeTrayIcon()
-                  } else {
-                    showTrayIcon()
-                  }
-                }}
-              />
+            <SettingItem
+              title={t('settings.floatingWindowCompatMode')}
+              divider
+            >
+              <div className="flex items-center gap-2">
+                <Switch
+                  size="sm"
+                  isSelected={floatingWindowCompatMode}
+                  onValueChange={async (v) => {
+                    await patchAppConfig({ floatingWindowCompatMode: v })
+                    closeFloatingWindow()
+                    setTimeout(() => {
+                      showFloatingWindow()
+                    }, 100)
+                  }}
+                />
+                <Tooltip content={t('settings.floatingWindowCompatModeTooltip')}>
+                  <IoIosHelpCircle className="text-default-500 cursor-help" />
+                </Tooltip>
+              </div>
             </SettingItem>
           </>
         )}
+          <SettingItem title={t('settings.disableTray')} divider>
+            <Switch
+              size="sm"
+              isSelected={disableTray}
+              onValueChange={async (v) => {
+                await patchAppConfig({ disableTray: v })
+                if (v) {
+                  closeTrayIcon()
+                } else {
+                  showTrayIcon()
+                }
+              }}
+            />
+          </SettingItem>
         {platform !== 'linux' && (
           <>
             <SettingItem title={t('settings.proxyInTray')} divider>

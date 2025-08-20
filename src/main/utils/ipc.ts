@@ -16,7 +16,9 @@ import {
   mihomoUpgrade,
   mihomoUpgradeGeo,
   mihomoVersion,
-  patchMihomoConfig
+  patchMihomoConfig,
+  mihomoSmartGroupWeights,
+  mihomoSmartFlushCache
 } from '../core/mihomoApi'
 import { checkAutoRun, disableAutoRun, enableAutoRun } from '../sys/autoRun'
 import {
@@ -54,7 +56,20 @@ import {
   subStoreFrontendPort,
   subStorePort
 } from '../resolve/server'
-import { manualGrantCorePermition, quitWithoutCore, restartCore } from '../core/manager'
+import {
+  quitWithoutCore,
+  restartCore,
+  checkTunPermissions,
+  grantTunPermissions,
+  manualGrantCorePermition,
+  checkAdminPrivileges,
+  restartAsAdmin,
+  checkMihomoCorePermissions,
+  requestTunPermissions,
+  checkHighPrivilegeCore,
+  showTunPermissionDialog,
+  showErrorDialog
+} from '../core/manager'
 import { triggerSysProxy } from '../sys/sysproxy'
 import { checkUpdate, downloadAndInstallUpdate } from '../resolve/autoUpdater'
 import {
@@ -141,6 +156,13 @@ export function registerIpcMainHandlers(): void {
     ipcErrorWrapper(mihomoGroupDelay)(group, url)
   )
   ipcMain.handle('patchMihomoConfig', (_e, patch) => ipcErrorWrapper(patchMihomoConfig)(patch))
+  // Smart 内核 API
+  ipcMain.handle('mihomoSmartGroupWeights', (_e, groupName) =>
+    ipcErrorWrapper(mihomoSmartGroupWeights)(groupName)
+  )
+  ipcMain.handle('mihomoSmartFlushCache', (_e, configName) =>
+    ipcErrorWrapper(mihomoSmartFlushCache)(configName)
+  )
   ipcMain.handle('checkAutoRun', ipcErrorWrapper(checkAutoRun))
   ipcMain.handle('enableAutoRun', ipcErrorWrapper(enableAutoRun))
   ipcMain.handle('disableAutoRun', ipcErrorWrapper(disableAutoRun))
@@ -177,6 +199,16 @@ export function registerIpcMainHandlers(): void {
   ipcMain.handle('startMonitor', (_e, detached) => ipcErrorWrapper(startMonitor)(detached))
   ipcMain.handle('triggerSysProxy', (_e, enable) => ipcErrorWrapper(triggerSysProxy)(enable))
   ipcMain.handle('manualGrantCorePermition', () => ipcErrorWrapper(manualGrantCorePermition)())
+  ipcMain.handle('checkAdminPrivileges', () => ipcErrorWrapper(checkAdminPrivileges)())
+  ipcMain.handle('restartAsAdmin', () => ipcErrorWrapper(restartAsAdmin)())
+  ipcMain.handle('checkMihomoCorePermissions', () => ipcErrorWrapper(checkMihomoCorePermissions)())
+  ipcMain.handle('requestTunPermissions', () => ipcErrorWrapper(requestTunPermissions)())
+  ipcMain.handle('checkHighPrivilegeCore', () => ipcErrorWrapper(checkHighPrivilegeCore)())
+  ipcMain.handle('showTunPermissionDialog', () => ipcErrorWrapper(showTunPermissionDialog)())
+  ipcMain.handle('showErrorDialog', (_, title: string, message: string) => ipcErrorWrapper(showErrorDialog)(title, message))
+
+  ipcMain.handle('checkTunPermissions', () => ipcErrorWrapper(checkTunPermissions)())
+  ipcMain.handle('grantTunPermissions', () => ipcErrorWrapper(grantTunPermissions)())
   ipcMain.handle('getFilePath', (_e, ext) => getFilePath(ext))
   ipcMain.handle('readTextFile', (_e, filePath) => ipcErrorWrapper(readTextFile)(filePath))
   ipcMain.handle('getRuntimeConfigStr', ipcErrorWrapper(getRuntimeConfigStr))
@@ -250,6 +282,18 @@ export function registerIpcMainHandlers(): void {
   ipcMain.handle('copyEnv', (_e, type) => ipcErrorWrapper(copyEnv)(type))
   ipcMain.handle('alert', (_e, msg) => {
     dialog.showErrorBox('Mihomo Party', msg)
+  })
+  ipcMain.handle('showDetailedError', (_e, title, message) => {
+    dialog.showErrorBox(title, message)
+  })
+  ipcMain.handle('getSmartOverrideContent', async () => {
+    const { getOverrideItem } = await import('../config')
+    try {
+      const override = await getOverrideItem('smart-core-override')
+      return override?.file || null
+    } catch (error) {
+      return null
+    }
   })
   ipcMain.handle('resetAppConfig', resetAppConfig)
   ipcMain.handle('relaunchApp', () => {

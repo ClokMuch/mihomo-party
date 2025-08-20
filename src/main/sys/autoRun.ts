@@ -1,9 +1,11 @@
-import { exePath, homeDir, taskDir } from '../utils/dirs'
+import { exePath, homeDir } from '../utils/dirs'
+import { tmpdir } from 'os'
 import { mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { exec } from 'child_process'
 import { existsSync } from 'fs'
 import { promisify } from 'util'
 import path from 'path'
+import { managerLogger } from '../utils/logger'
 
 const appName = 'mihomo-party'
 
@@ -19,7 +21,7 @@ function getTaskXml(): string {
   <Principals>
     <Principal id="Author">
       <LogonType>InteractiveToken</LogonType>
-      <RunLevel>HighestAvailable</RunLevel>
+      <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
   </Principals>
   <Settings>
@@ -43,8 +45,7 @@ function getTaskXml(): string {
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>"${path.join(taskDir(), `mihomo-party-run.exe`)}"</Command>
-      <Arguments>"${exePath()}"</Arguments>
+      <Command>"${exePath()}"</Command>
     </Exec>
   </Actions>
 </Task>
@@ -81,11 +82,22 @@ export async function checkAutoRun(): Promise<boolean> {
 export async function enableAutoRun(): Promise<void> {
   if (process.platform === 'win32') {
     const execPromise = promisify(exec)
-    const taskFilePath = path.join(taskDir(), `${appName}.xml`)
+    const taskFilePath = path.join(tmpdir(), `${appName}.xml`)
     await writeFile(taskFilePath, Buffer.from(`\ufeff${getTaskXml()}`, 'utf-16le'))
-    await execPromise(
-      `%SystemRoot%\\System32\\schtasks.exe /create /tn "${appName}" /xml "${taskFilePath}" /f`
-    )
+    const { checkAdminPrivileges } = await import('../core/manager')
+    const isAdmin = await checkAdminPrivileges()
+    if (isAdmin) {
+      await execPromise(`%SystemRoot%\\System32\\schtasks.exe /create /tn "${appName}" /xml "${taskFilePath}" /f`)
+    } else {
+      try {
+        await execPromise(
+          `powershell -Command "Start-Process schtasks -Verb RunAs -ArgumentList '/create', '/tn', '${appName}', '/xml', '${taskFilePath}', '/f' -WindowStyle Hidden"`
+        )
+      }
+      catch (e) {
+        await managerLogger.info('Maybe the user rejected the UAC dialog?')
+      }
+    }
   }
   if (process.platform === 'darwin') {
     const execPromise = promisify(exec)
@@ -121,7 +133,17 @@ Categories=Utility;
 export async function disableAutoRun(): Promise<void> {
   if (process.platform === 'win32') {
     const execPromise = promisify(exec)
-    await execPromise(`%SystemRoot%\\System32\\schtasks.exe /delete /tn "${appName}" /f`)
+    const { checkAdminPrivileges } = await import('../core/manager')
+    const isAdmin = await checkAdminPrivileges()
+    if (isAdmin) {
+      await execPromise(`%SystemRoot%\\System32\\schtasks.exe /delete /tn "${appName}" /f`)
+    } else {
+      try {
+        await execPromise(`powershell -Command "Start-Process schtasks -Verb RunAs -ArgumentList '/delete', '/tn', '${appName}', '/f' -WindowStyle Hidden"`)
+      } catch (e) {
+        await managerLogger.info('Maybe the user rejected the UAC dialog?')
+      }
+    }
   }
   if (process.platform === 'darwin') {
     const execPromise = promisify(exec)

@@ -39,8 +39,26 @@ import {
   patchAppConfig,
   patchControledMihomoConfig
 } from '../config'
-import { app } from 'electron'
+import { app, dialog } from 'electron'
 import { startSSIDCheck } from '../sys/ssid'
+import i18next from '../../shared/i18n'
+import { initLogger } from './logger'
+
+// 安全错误处理
+export function safeShowErrorBox(titleKey: string, message: string): void {
+  let title: string
+  try {
+    title = i18next.t(titleKey)
+    if (!title || title === titleKey) throw new Error('Translation not ready')
+  } catch {
+    const isZh = process.env.LANG?.startsWith('zh') || process.env.LC_ALL?.startsWith('zh')
+    const fallbacks: Record<string, { zh: string; en: string }> = {
+      'mihomo.error.coreStartFailed': { zh: '内核启动出错', en: 'Core start failed' }
+    }
+    title = fallbacks[titleKey] ? (isZh ? fallbacks[titleKey].zh : fallbacks[titleKey].en) : (isZh ? '错误' : 'Error')
+  }
+  dialog.showErrorBox(title, message)
+}
 
 async function fixDataDirPermissions(): Promise<void> {
   if (process.platform !== 'darwin') return
@@ -65,50 +83,63 @@ async function fixDataDirPermissions(): Promise<void> {
   }
 }
 
+  // 比较修改geodata文件修改时间
+async function isSourceNewer(sourcePath: string, targetPath: string): Promise<boolean> {
+  try {
+    const sourceStats = await stat(sourcePath)
+    const targetStats = await stat(targetPath)
+
+    return sourceStats.mtime > targetStats.mtime
+  } catch {
+    return true
+  }
+}
+
 async function initDirs(): Promise<void> {
   await fixDataDirPermissions()
 
-  if (!existsSync(dataDir())) {
-    await mkdir(dataDir())
-  }
-  if (!existsSync(themesDir())) {
-    await mkdir(themesDir())
-  }
-  if (!existsSync(profilesDir())) {
-    await mkdir(profilesDir())
-  }
-  if (!existsSync(overrideDir())) {
-    await mkdir(overrideDir())
-  }
-  if (!existsSync(mihomoWorkDir())) {
-    await mkdir(mihomoWorkDir())
-  }
-  if (!existsSync(logDir())) {
-    await mkdir(logDir())
-  }
-  if (!existsSync(mihomoTestDir())) {
-    await mkdir(mihomoTestDir())
-  }
-  if (!existsSync(subStoreDir())) {
-    await mkdir(subStoreDir())
+  // 按依赖顺序创建目录
+  const dirsToCreate = [
+    dataDir(),
+    themesDir(),
+    profilesDir(),
+    overrideDir(),
+    mihomoWorkDir(),
+    logDir(),
+    mihomoTestDir(),
+    subStoreDir()
+  ]
+
+  for (const dir of dirsToCreate) {
+    try {
+      if (!existsSync(dir)) {
+        await mkdir(dir, { recursive: true })
+      }
+    } catch (error) {
+      await initLogger.error(`Failed to create directory ${dir}`, error)
+      throw new Error(`Failed to create directory ${dir}: ${error}`)
+    }
   }
 }
 
 async function initConfig(): Promise<void> {
-  if (!existsSync(appConfigPath())) {
-    await writeFile(appConfigPath(), yaml.stringify(defaultConfig))
-  }
-  if (!existsSync(profileConfigPath())) {
-    await writeFile(profileConfigPath(), yaml.stringify(defaultProfileConfig))
-  }
-  if (!existsSync(overrideConfigPath())) {
-    await writeFile(overrideConfigPath(), yaml.stringify(defaultOverrideConfig))
-  }
-  if (!existsSync(profilePath('default'))) {
-    await writeFile(profilePath('default'), yaml.stringify(defaultProfile))
-  }
-  if (!existsSync(controledMihomoConfigPath())) {
-    await writeFile(controledMihomoConfigPath(), yaml.stringify(defaultControledMihomoConfig))
+  const configs = [
+    { path: appConfigPath(), content: defaultConfig, name: 'app config' },
+    { path: profileConfigPath(), content: defaultProfileConfig, name: 'profile config' },
+    { path: overrideConfigPath(), content: defaultOverrideConfig, name: 'override config' },
+    { path: profilePath('default'), content: defaultProfile, name: 'default profile' },
+    { path: controledMihomoConfigPath(), content: defaultControledMihomoConfig, name: 'mihomo config' }
+  ]
+
+  for (const config of configs) {
+    try {
+      if (!existsSync(config.path)) {
+        await writeFile(config.path, yaml.stringify(config.content))
+      }
+    } catch (error) {
+      await initLogger.error(`Failed to create ${config.name} at ${config.path}`, error)
+      throw new Error(`Failed to create ${config.name}: ${error}`)
+    }
   }
 }
 
@@ -117,13 +148,37 @@ async function initFiles(): Promise<void> {
     const targetPath = path.join(mihomoWorkDir(), file)
     const testTargetPath = path.join(mihomoTestDir(), file)
     const sourcePath = path.join(resourcesFilesDir(), file)
-    if (!existsSync(targetPath) && existsSync(sourcePath)) {
-      await cp(sourcePath, targetPath, { recursive: true })
-    }
-    if (!existsSync(testTargetPath) && existsSync(sourcePath)) {
-      await cp(sourcePath, testTargetPath, { recursive: true })
+
+    try {
+      // 检查是否需要复制
+      if (existsSync(sourcePath)) {
+        const shouldCopyToWork = !existsSync(targetPath) || await isSourceNewer(sourcePath, targetPath)
+        if (shouldCopyToWork) {
+          await cp(sourcePath, targetPath, { recursive: true })
+        }
+      }
+      if (existsSync(sourcePath)) {
+        const shouldCopyToTest = !existsSync(testTargetPath) || await isSourceNewer(sourcePath, testTargetPath)
+        if (shouldCopyToTest) {
+          await cp(sourcePath, testTargetPath, { recursive: true })
+        }
+      }
+    } catch (error) {
+      await initLogger.error(`Failed to copy ${file}`, error)
+      if (['country.mmdb', 'geoip.dat', 'geosite.dat'].includes(file)) {
+        throw new Error(`Failed to copy critical file ${file}: ${error}`)
+      }
     }
   }
+
+  // 确保工作目录存在
+  if (!existsSync(mihomoWorkDir())) {
+    await mkdir(mihomoWorkDir(), { recursive: true })
+  }
+  if (!existsSync(mihomoTestDir())) {
+    await mkdir(mihomoTestDir(), { recursive: true })
+  }
+
   await Promise.all([
     copy('country.mmdb'),
     copy('geoip.metadb'),
@@ -263,12 +318,17 @@ function initDeeplink(): void {
   }
 }
 
-export async function init(): Promise<void> {
+// 基础初始化
+export async function initBasic(): Promise<void> {
   await initDirs()
   await initConfig()
   await migration()
   await initFiles()
   await cleanup()
+}
+
+export async function init(): Promise<void> {
+  await initBasic()
   await startSubStoreFrontendServer()
   await startSubStoreBackendServer()
   const { sysProxy } = await getAppConfig()

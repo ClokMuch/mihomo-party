@@ -1,5 +1,10 @@
 export const defaultConfig: IAppConfig = {
   core: 'mihomo',
+  enableSmartCore: true,
+  enableSmartOverride: true,
+  smartCoreUseLightGBM: false,
+  smartCoreCollectData: false,
+  smartCoreStrategy: 'sticky-sessions',
   silentStart: false,
   appTheme: 'system',
   useWindowFrame: false,
@@ -16,6 +21,11 @@ export const defaultConfig: IAppConfig = {
   useNameserverPolicy: false,
   controlDns: true,
   controlSniff: true,
+  floatingWindowCompatMode: true,
+  disableLoopbackDetector: false,
+  disableEmbedCA: false,
+  disableSystemCA: false,
+  skipSafePathCheck: false,
   nameserverPolicy: {},
   siderOrder: [
     'sysproxy',
@@ -57,7 +67,7 @@ export const defaultControledMihomoConfig: Partial<IMihomoConfig> = {
   'skip-auth-prefixes': ['127.0.0.1/32'],
   tun: {
     enable: false,
-    device: 'Mihomo',
+    device: process.platform === 'darwin' ? 'utun1500' : 'Mihomo',
     stack: 'mixed',
     'auto-route': true,
     'auto-redirect': false,
@@ -74,6 +84,7 @@ export const defaultControledMihomoConfig: Partial<IMihomoConfig> = {
     'fake-ip-filter': ['*', '+.lan', '+.local', 'time.*.com', 'ntp.*.com', '+.market.xiaomi.com'],
     'use-hosts': false,
     'use-system-hosts': false,
+    'default-nameserver': ['tls://223.5.5.5'],
     nameserver: ['https://120.53.53.53/dns-query', 'https://223.5.5.5/dns-query'],
     'proxy-server-nameserver': ['https://120.53.53.53/dns-query', 'https://223.5.5.5/dns-query'],
     'direct-nameserver': []

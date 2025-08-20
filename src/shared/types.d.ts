@@ -216,7 +216,12 @@ interface ISysProxyConfig {
 }
 
 interface IAppConfig {
-  core: 'mihomo' | 'mihomo-alpha'
+  core: 'mihomo' | 'mihomo-alpha' | 'mihomo-smart'
+  enableSmartCore: boolean
+  enableSmartOverride: boolean
+  smartCoreUseLightGBM: boolean
+  smartCoreCollectData: boolean
+  smartCoreStrategy: 'sticky-sessions' | 'round-robin'
   disableLoopbackDetector: boolean
   disableEmbedCA: boolean
   disableSystemCA: boolean
@@ -231,6 +236,7 @@ interface IAppConfig {
   spinFloatingIcon?: boolean
   disableTray?: boolean
   showFloatingWindow?: boolean
+  floatingWindowCompatMode?: boolean
   connectionCardStatus?: CardStatus
   dnsCardStatus?: CardStatus
   logCardStatus?: CardStatus
@@ -455,7 +461,7 @@ interface IProfileItem {
   name: string
   url?: string // remote
   file?: string // local
-  interval?: number
+  interval?: number | string
   home?: string
   updated?: number
   override?: string[]

@@ -1,7 +1,7 @@
 import { ChildProcess, exec, execFile, spawn } from 'child_process'
 import {
   dataDir,
-  logPath,
+  coreLogPath,
   mihomoCoreDir,
   mihomoCorePath,
   mihomoProfileWorkDir,
@@ -15,9 +15,10 @@ import {
   getControledMihomoConfig,
   getProfileConfig,
   patchAppConfig,
-  patchControledMihomoConfig
+  patchControledMihomoConfig,
+  manageSmartOverride
 } from '../config'
-import { app, dialog, ipcMain, net } from 'electron'
+import { app, ipcMain, net } from 'electron'
 import {
   startMihomoTraffic,
   startMihomoConnections,
@@ -38,14 +39,16 @@ import os from 'os'
 import { createWriteStream, existsSync } from 'fs'
 import { uploadRuntimeConfig } from '../resolve/gistApi'
 import { startMonitor } from '../resolve/trafficMonitor'
+import { safeShowErrorBox } from '../utils/init'
 import i18next from '../../shared/i18n'
+import { managerLogger } from '../utils/logger'
 
 chokidar.watch(path.join(mihomoCoreDir(), 'meta-update'), {}).on('unlinkDir', async () => {
   try {
     await stopCore(true)
     await startCore()
   } catch (e) {
-    dialog.showErrorBox(i18next.t('mihomo.error.coreStartFailed'), `${e}`)
+    safeShowErrorBox('mihomo.error.coreStartFailed', `${e}`)
   }
 })
 
@@ -83,6 +86,10 @@ export async function startCore(detached = false): Promise<Promise<void>[]> {
   const { current } = await getProfileConfig()
   const { tun } = await getControledMihomoConfig()
   const corePath = mihomoCorePath(core)
+
+  // 管理 Smart 内核覆写配置
+  await manageSmartOverride()
+
   await generateProfile()
   await checkProfile()
   await stopCore()
@@ -90,13 +97,12 @@ export async function startCore(detached = false): Promise<Promise<void>[]> {
     try {
       await setPublicDNS()
     } catch (error) {
-      await writeFile(logPath(), `[Manager]: set dns failed, ${error}`, {
-        flag: 'a'
-      })
+      await managerLogger.error('set dns failed', error)
     }
   }
-  const stdout = createWriteStream(logPath(), { flags: 'a' })
-  const stderr = createWriteStream(logPath(), { flags: 'a' })
+  // 内核日志输出到独立的 core-日期.log 文件
+  const stdout = createWriteStream(coreLogPath(), { flags: 'a' })
+  const stderr = createWriteStream(coreLogPath(), { flags: 'a' })
   const env = {
     DISABLE_LOOPBACK_DETECTOR: String(disableLoopbackDetector),
     DISABLE_EMBED_CA: String(disableEmbedCA),
@@ -107,7 +113,7 @@ export async function startCore(detached = false): Promise<Promise<void>[]> {
     corePath,
     ['-d', diffWorkDir ? mihomoProfileWorkDir(current) : mihomoWorkDir(), ctlParam, mihomoIpcPath],
     {
-      detached: detached,
+      detached: true,
       stdio: detached ? 'ignore' : undefined,
       env: env
     }
@@ -122,11 +128,9 @@ export async function startCore(detached = false): Promise<Promise<void>[]> {
     })
   }
   child.on('close', async (code, signal) => {
-    await writeFile(logPath(), `[Manager]: Core closed, code: ${code}, signal: ${signal}\n`, {
-      flag: 'a'
-    })
+    await managerLogger.info(`Core closed, code: ${code}, signal: ${signal}`)
     if (retry) {
-      await writeFile(logPath(), `[Manager]: Try Restart Core\n`, { flag: 'a' })
+      await managerLogger.info('Try Restart Core')
       retry--
       await restartCore()
     } else {
@@ -188,9 +192,7 @@ export async function stopCore(force = false): Promise<void> {
       await recoverDNS()
     }
   } catch (error) {
-    await writeFile(logPath(), `[Manager]: recover dns failed, ${error}`, {
-      flag: 'a'
-    })
+    await managerLogger.error('recover dns failed', error)
   }
 
   if (child) {
@@ -207,18 +209,21 @@ export async function restartCore(): Promise<void> {
   try {
     await startCore()
   } catch (e) {
-    dialog.showErrorBox(i18next.t('mihomo.error.coreStartFailed'), `${e}`)
+    // 记录错误到日志而不是显示阻塞对话框
+    await managerLogger.error('restart core failed', e)
+    // 重新抛出错误，让调用者处理
+    throw e
   }
 }
 
 export async function keepCoreAlive(): Promise<void> {
   try {
-    await startCore(true)
+    if (!child) await startCore(true)
     if (child && child.pid) {
       await writeFile(path.join(dataDir(), 'core.pid'), child.pid.toString())
     }
   } catch (e) {
-    dialog.showErrorBox(i18next.t('mihomo.error.coreStartFailed'), `${e}`)
+    safeShowErrorBox('mihomo.error.coreStartFailed', `${e}`)
   }
 }
 
@@ -249,29 +254,75 @@ async function checkProfile(): Promise<void> {
       mihomoTestDir()
     ], { env })
   } catch (error) {
+    await managerLogger.error('Profile check failed', error)
+
     if (error instanceof Error && 'stdout' in error) {
-      const { stdout } = error as { stdout: string }
+      const { stdout, stderr } = error as { stdout: string; stderr?: string }
+      await managerLogger.info('Profile check stdout', stdout)
+      await managerLogger.info('Profile check stderr', stderr)
+
       const errorLines = stdout
         .split('\n')
-        .filter((line) => line.includes('level=error'))
-        .map((line) => line.split('level=error')[1])
-      throw new Error(`${i18next.t('mihomo.error.profileCheckFailed')}:\n${errorLines.join('\n')}`)
+        .filter((line) => line.includes('level=error') || line.includes('error'))
+        .map((line) => {
+          if (line.includes('level=error')) {
+            return line.split('level=error')[1]?.trim() || line
+          }
+          return line.trim()
+        })
+        .filter(line => line.length > 0)
+
+      if (errorLines.length === 0) {
+        const allLines = stdout.split('\n').filter(line => line.trim().length > 0)
+        throw new Error(`${i18next.t('mihomo.error.profileCheckFailed')}:\n${allLines.join('\n')}`)
+      } else {
+        throw new Error(`${i18next.t('mihomo.error.profileCheckFailed')}:\n${errorLines.join('\n')}`)
+      }
     } else {
-      throw error
+      throw new Error(`${i18next.t('mihomo.error.profileCheckFailed')}: ${error}`)
     }
   }
 }
 
-export async function manualGrantCorePermition(): Promise<void> {
+export async function checkTunPermissions(): Promise<boolean> {
+  const { core = 'mihomo' } = await getAppConfig()
+  const corePath = mihomoCorePath(core)
+
+  try {
+    if (process.platform === 'win32') {
+      const execPromise = promisify(exec)
+      try {
+        await execPromise('net session')
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      const { stat } = await import('fs/promises')
+      const stats = await stat(corePath)
+      return (stats.mode & 0o4000) !== 0 && stats.uid === 0
+    }
+  } catch {
+    return false
+  }
+
+  return false
+}
+
+export async function grantTunPermissions(): Promise<void> {
   const { core = 'mihomo' } = await getAppConfig()
   const corePath = mihomoCorePath(core)
   const execPromise = promisify(exec)
   const execFilePromise = promisify(execFile)
+
   if (process.platform === 'darwin') {
     const shell = `chown root:admin ${corePath.replace(' ', '\\\\ ')}\nchmod +sx ${corePath.replace(' ', '\\\\ ')}`
     const command = `do shell script "${shell}" with administrator privileges`
     await execPromise(`osascript -e '${command}'`)
   }
+
   if (process.platform === 'linux') {
     await execFilePromise('pkexec', [
       'bash',
@@ -279,6 +330,330 @@ export async function manualGrantCorePermition(): Promise<void> {
       `chown root:root "${corePath}" && chmod +sx "${corePath}"`
     ])
   }
+
+  if (process.platform === 'win32') {
+    throw new Error('Windows platform requires running as administrator')
+  }
+}
+
+export async function checkAdminPrivileges(): Promise<boolean> {
+  if (process.platform !== 'win32') {
+    return true
+  }
+
+  try {
+    const execPromise = promisify(exec)
+    await execPromise('net session')
+    return true
+  } catch {
+    return false
+  }
+}
+
+// TUN 权限确认框
+export async function showTunPermissionDialog(): Promise<boolean> {
+  const { dialog } = await import('electron')
+  const i18next = await import('i18next')
+
+  await managerLogger.info('Preparing TUN permission dialog...')
+  await managerLogger.info(`i18next available: ${typeof i18next.t === 'function'}`)
+
+  const title = i18next.t('tun.permissions.title') || '需要管理员权限'
+  const message = i18next.t('tun.permissions.message') || '启用TUN模式需要管理员权限，是否现在重启应用获取权限？'
+  const confirmText = i18next.t('common.confirm') || '确认'
+  const cancelText = i18next.t('common.cancel') || '取消'
+
+  await managerLogger.info(`Dialog texts - Title: "${title}", Message: "${message}", Confirm: "${confirmText}", Cancel: "${cancelText}"`)
+
+  const choice = dialog.showMessageBoxSync({
+    type: 'warning',
+    title: title,
+    message: message,
+    buttons: [confirmText, cancelText],
+    defaultId: 0,
+    cancelId: 1
+  })
+
+  await managerLogger.info(`TUN permission dialog choice: ${choice}`)
+
+  return choice === 0
+}
+
+// 错误显示框
+export async function showErrorDialog(title: string, message: string): Promise<void> {
+  const { dialog } = await import('electron')
+  const i18next = await import('i18next')
+
+  const okText = i18next.t('common.confirm') || '确认'
+
+  dialog.showMessageBoxSync({
+    type: 'error',
+    title: title,
+    message: message,
+    buttons: [okText],
+    defaultId: 0
+  })
+}
+
+export async function restartAsAdmin(forTun: boolean = true): Promise<void> {
+  if (process.platform !== 'win32') {
+    throw new Error('This function is only available on Windows')
+  }
+
+  const exePath = process.execPath
+  const args = process.argv.slice(1)
+  const restartArgs = forTun ? [...args, '--admin-restart-for-tun'] : args
+
+  try {
+    // 处理路径和参数的引号
+    const escapedExePath = exePath.replace(/'/g, "''")
+    const argsString = restartArgs.map(arg => arg.replace(/'/g, "''")).join("', '")
+
+    let command: string
+    if (restartArgs.length > 0) {
+      command = `powershell -Command "Start-Process -FilePath '${escapedExePath}' -ArgumentList '${argsString}' -Verb RunAs"`
+    } else {
+      command = `powershell -Command "Start-Process -FilePath '${escapedExePath}' -Verb RunAs"`
+    }
+
+    await managerLogger.info('Restarting as administrator with command', command)
+
+    // 执行PowerShell命令
+    exec(command, { windowsHide: true }, async (error, _stdout, stderr) => {
+      if (error) {
+        await managerLogger.error('PowerShell execution error', error)
+        await managerLogger.error('stderr', stderr)
+      } else {
+        await managerLogger.info('PowerShell command executed successfully')
+      }
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 1500))
+
+    const { app } = await import('electron')
+    app.quit()
+  } catch (error) {
+    await managerLogger.error('Failed to restart as administrator', error)
+    throw new Error(`Failed to restart as administrator: ${error}`)
+  }
+}
+
+export async function checkMihomoCorePermissions(): Promise<boolean> {
+  const { core = 'mihomo' } = await getAppConfig()
+  const corePath = mihomoCorePath(core)
+
+  try {
+    if (process.platform === 'win32') {
+      // Windows权限检查
+      return await checkAdminPrivileges()
+    }
+
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      const { stat } = await import('fs/promises')
+      const stats = await stat(corePath)
+      return (stats.mode & 0o4000) !== 0 && stats.uid === 0
+    }
+  } catch {
+    return false
+  }
+
+  return false
+}
+
+// 检测高权限内核
+export async function checkHighPrivilegeCore(): Promise<boolean> {
+  try {
+    const { core = 'mihomo' } = await getAppConfig()
+    const corePath = mihomoCorePath(core)
+
+    await managerLogger.info(`Checking high privilege core: ${corePath}`)
+
+    if (process.platform === 'win32') {
+      const { existsSync } = await import('fs')
+      if (!existsSync(corePath)) {
+        await managerLogger.info('Core file does not exist')
+        return false
+      }
+
+      const hasHighPrivilegeProcess = await checkHighPrivilegeMihomoProcess()
+      if (hasHighPrivilegeProcess) {
+        await managerLogger.info('Found high privilege mihomo process running')
+        return true
+      }
+
+      const isAdmin = await checkAdminPrivileges()
+      await managerLogger.info(`Current process admin privileges: ${isAdmin}`)
+      return isAdmin
+    }
+
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      await managerLogger.info('Non-Windows platform, skipping high privilege core check')
+      return false
+    }
+  } catch (error) {
+    await managerLogger.error('Failed to check high privilege core', error)
+    return false
+  }
+
+  return false
+}
+
+async function checkHighPrivilegeMihomoProcess(): Promise<boolean> {
+  try {
+    if (process.platform === 'win32') {
+      const execPromise = promisify(exec)
+
+      const mihomoExecutables = ['mihomo.exe', 'mihomo-alpha.exe', 'mihomo-smart.exe']
+
+      for (const executable of mihomoExecutables) {
+        try {
+          const { stdout } = await execPromise(`tasklist /FI "IMAGENAME eq ${executable}" /FO CSV`)
+          const lines = stdout.split('\n').filter(line => line.includes(executable))
+
+          if (lines.length > 0) {
+            await managerLogger.info(`Found ${lines.length} ${executable} processes running`)
+
+            for (const line of lines) {
+              const parts = line.split(',')
+              if (parts.length >= 2) {
+                const pid = parts[1].replace(/"/g, '').trim()
+                try {
+                  const { stdout: processInfo } = await execPromise(`powershell -Command "Get-Process -Id ${pid} | Select-Object Name,Id,Path,CommandLine | ConvertTo-Json"`)
+                  const processJson  = JSON.parse(processInfo)
+                  await managerLogger.info(`Process ${pid} info: ${processInfo.substring(0, 200)}`)
+
+                  if (processJson.Name.includes('mihomo') && processJson.Path === null) {
+                    return true
+                  }
+                } catch (error) {
+                  await managerLogger.info(`Cannot get info for process ${pid}, might be high privilege`)
+                }
+              }
+            }
+          }
+        } catch (error) {
+          await managerLogger.error(`Failed to check ${executable} processes`, error)
+        }
+      }
+    }
+
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      const execPromise = promisify(exec)
+
+      try {
+        const mihomoExecutables = ['mihomo', 'mihomo-alpha', 'mihomo-smart']
+        let foundProcesses = false
+
+        for (const executable of mihomoExecutables) {
+          try {
+            const { stdout } = await execPromise(`ps aux | grep ${executable} | grep -v grep`)
+            const lines = stdout.split('\n').filter(line => line.trim() && line.includes(executable))
+
+            if (lines.length > 0) {
+              foundProcesses = true
+              await managerLogger.info(`Found ${lines.length} ${executable} processes running`)
+
+              for (const line of lines) {
+                const parts = line.trim().split(/\s+/)
+                if (parts.length >= 1) {
+                  const user = parts[0]
+                  await managerLogger.info(`${executable} process running as user: ${user}`)
+
+                  if (user === 'root') {
+                    return true
+                  }
+                }
+              }
+            }
+          } catch (error) {
+          }
+        }
+
+        if (!foundProcesses) {
+          await managerLogger.info('No mihomo processes found running')
+        }
+      } catch (error) {
+        await managerLogger.error('Failed to check mihomo processes on Unix', error)
+      }
+    }
+  } catch (error) {
+    await managerLogger.error('Failed to check high privilege mihomo process', error)
+  }
+
+  return false
+}
+
+// TUN模式获取权限
+export async function requestTunPermissions(): Promise<void> {
+  if (process.platform === 'win32') {
+    await restartAsAdmin()
+  } else {
+    const hasPermissions = await checkMihomoCorePermissions()
+    if (!hasPermissions) {
+      await grantTunPermissions()
+    }
+  }
+}
+
+export async function checkAdminRestartForTun(): Promise<void> {
+  if (process.argv.includes('--admin-restart-for-tun')) {
+    await managerLogger.info('Detected admin restart for TUN mode, auto-enabling TUN...')
+
+    try {
+      if (process.platform === 'win32') {
+        const hasAdminPrivileges = await checkAdminPrivileges()
+        if (hasAdminPrivileges) {
+          await patchControledMihomoConfig({ tun: { enable: true }, dns: { enable: true } })
+          await restartCore()
+
+          await managerLogger.info('TUN mode auto-enabled after admin restart')
+
+          const { mainWindow } = await import('../index')
+          mainWindow?.webContents.send('controledMihomoConfigUpdated')
+          ipcMain.emit('updateTrayMenu')
+        } else {
+          await managerLogger.warn('Admin restart detected but no admin privileges found')
+        }
+      }
+    } catch (error) {
+      await managerLogger.error('Failed to auto-enable TUN after admin restart', error)
+    }
+  } else {
+    // 检查TUN配置与权限的匹配，但不自动开启 TUN
+    await validateTunPermissionsOnStartup()
+  }
+}
+
+export async function validateTunPermissionsOnStartup(): Promise<void> {
+  try {
+    const { tun } = await getControledMihomoConfig()
+
+    if (!tun?.enable) {
+      return
+    }
+
+    const hasPermissions = await checkMihomoCorePermissions()
+
+    if (!hasPermissions) {
+      await managerLogger.warn('TUN is enabled but insufficient permissions detected, auto-disabling TUN...')
+
+      await patchControledMihomoConfig({ tun: { enable: false } })
+
+      const { mainWindow } = await import('../index')
+      mainWindow?.webContents.send('controledMihomoConfigUpdated')
+      ipcMain.emit('updateTrayMenu')
+
+      await managerLogger.info('TUN auto-disabled due to insufficient permissions')
+    } else {
+      await managerLogger.info('TUN permissions validated successfully')
+    }
+  } catch (error) {
+    await managerLogger.error('Failed to validate TUN permissions on startup', error)
+  }
+}
+
+export async function manualGrantCorePermition(): Promise<void> {
+  return grantTunPermissions()
 }
 
 export async function getDefaultDevice(): Promise<string> {

@@ -5,7 +5,7 @@ import SettingCard from '@renderer/components/base/base-setting-card'
 import SettingItem from '@renderer/components/base/base-setting-item'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
-import { restartCore } from '@renderer/utils/ipc'
+import { restartCore, patchMihomoConfig } from '@renderer/utils/ipc'
 import React, { Key, ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -13,9 +13,10 @@ const DNS: React.FC = () => {
   const { t } = useTranslation()
   const { controledMihomoConfig, patchControledMihomoConfig } = useControledMihomoConfig()
   const { appConfig, patchAppConfig } = useAppConfig()
-  const { nameserverPolicy, useNameserverPolicy } = appConfig || {}
+  const { nameserverPolicy, useNameserverPolicy, controlDns = true } = appConfig || {}
   const { dns, hosts } = controledMihomoConfig || {}
   const {
+    enable = true,
     ipv6 = false,
     'fake-ip-range': fakeIPRange = '198.18.0.1/16',
     'fake-ip-filter': fakeIPFilter = [
@@ -40,6 +41,7 @@ const DNS: React.FC = () => {
   } = dns || {}
   const [changed, setChanged] = useState(false)
   const [values, originSetValues] = useState({
+    enable,
     ipv6,
     useHosts,
     enhancedMode,
@@ -126,7 +128,10 @@ const DNS: React.FC = () => {
     try {
       setChanged(false)
       await patchControledMihomoConfig(patch)
-      await restartCore()
+      if (controlDns) {
+        await patchMihomoConfig(patch)
+        await restartCore()
+      }
     } catch (e) {
       alert(e)
     }
@@ -143,6 +148,7 @@ const DNS: React.FC = () => {
             color="primary"
             onPress={() => {
               const dnsConfig = {
+                enable: values.enable,
                 ipv6: values.ipv6,
                 'fake-ip-range': values.fakeIPRange,
                 'fake-ip-filter': values.fakeIPFilter,
@@ -171,12 +177,21 @@ const DNS: React.FC = () => {
               onSave(result)
             }}
           >
-            {t('common.save')}
+            {controlDns ? t('common.save') : t('dns.saveOnly')}
           </Button>
         )
       }
     >
       <SettingCard>
+        <SettingItem title={t('dns.enable')} divider>
+          <Switch
+            size="sm"
+            isSelected={values.enable}
+            onValueChange={(v) => {
+              setValues({ ...values, enable: v })
+            }}
+          />
+        </SettingItem>
         <SettingItem title={t('dns.enhancedMode.title')} divider>
           <Tabs
             size="sm"
@@ -264,7 +279,7 @@ const DNS: React.FC = () => {
               {[...values.nameserverPolicy, { domain: '', value: '' }].map(
                 ({ domain, value }, index) => (
                   <div key={index} className="flex mb-2">
-                    <div className="flex-[4]">
+                    <div className="flex-4">
                       <Input
                         size="sm"
                         fullWidth
@@ -281,7 +296,7 @@ const DNS: React.FC = () => {
                       />
                     </div>
                     <span className="mx-2">:</span>
-                    <div className="flex-[6] flex">
+                    <div className="flex-6 flex">
                       <Input
                         size="sm"
                         fullWidth
@@ -332,7 +347,7 @@ const DNS: React.FC = () => {
             <h3 className="mb-2">{t('dns.customHosts.list')}</h3>
             {[...values.hosts, { domain: '', value: '' }].map(({ domain, value }, index) => (
               <div key={index} className="flex mb-2">
-                <div className="flex-[4]">
+                <div className="flex-4">
                   <Input
                     size="sm"
                     fullWidth
@@ -349,7 +364,7 @@ const DNS: React.FC = () => {
                   />
                 </div>
                 <span className="mx-2">:</span>
-                <div className="flex-[6] flex">
+                <div className="flex-6 flex">
                   <Input
                     size="sm"
                     fullWidth

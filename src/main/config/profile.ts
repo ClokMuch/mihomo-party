@@ -37,15 +37,21 @@ export async function getProfileItem(id: string | undefined): Promise<IProfileIt
 export async function changeCurrentProfile(id: string): Promise<void> {
   const config = await getProfileConfig()
   const current = config.current
+
+  if (current === id) {
+    return
+  }
+
   config.current = id
   await setProfileConfig(config)
+
   try {
     await restartCore()
   } catch (e) {
+    // 如果重启失败，恢复原来的配置
     config.current = current
-    throw e
-  } finally {
     await setProfileConfig(config)
+    throw e
   }
 }
 
@@ -199,7 +205,10 @@ export async function setProfileStr(id: string, content: string): Promise<void> 
 
 export async function getProfile(id: string | undefined): Promise<IMihomoConfig> {
   const profile = await getProfileStr(id)
-  let result = yaml.parse(profile, { merge: true }) || {}
+  
+  // 替换 防止错误使用科学记数法解析
+  const patchedProfile = profile.replace(/(\w+:\s*)(\d+E\d+)(\s|$)/gi, '$1"$2"$3')
+  let result = yaml.parse(patchedProfile, { merge: true }) || {}
   if (typeof result !== 'object') result = {}
   return result
 }
@@ -217,7 +226,7 @@ function parseFilename(str: string): string {
 
 // subscription-userinfo: upload=1234; download=2234; total=1024000; expire=2218532293
 function parseSubinfo(str: string): ISubscriptionUserInfo {
-  const parts = str.split('; ')
+  const parts = str.split(/\s*;\s*/)
   const obj = {} as ISubscriptionUserInfo
   parts.forEach((part) => {
     const [key, value] = part.split('=')
