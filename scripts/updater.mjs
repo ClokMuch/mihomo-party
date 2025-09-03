@@ -4,8 +4,6 @@ import { getProcessedVersion, isDevBuild, getDownloadUrl, generateDownloadLinksM
 
 const pkg = readFileSync('package.json', 'utf-8')
 let changelog = readFileSync('changelog.md', 'utf-8')
-const { version } = JSON.parse(pkg)
-const downloadUrl = `https://github.com/ClokMuch/mihomo-party/releases/download/v${version}`
 const { version: packageVersion } = JSON.parse(pkg)
 
 // 获取处理后的版本号
