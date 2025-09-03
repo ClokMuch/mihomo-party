@@ -37,7 +37,14 @@ const DNS: React.FC = () => {
       'https://doh.pub/dns-query',
       'https://dns.alidns.com/dns-query'
     ],
-    'direct-nameserver': directNameserver = []
+    'direct-nameserver': directNameserver = [],
+    fallback = [],
+    'fallback-filter': fallbackFilter = {
+      geoip: true,
+      'geoip-code': 'CN',
+      ipcidr: ['240.0.0.0/4', '0.0.0.0/32'],
+      domain: ['+.google.com', '+.facebook.com', '+.youtube.com']
+    }
   } = dns || {}
   const [changed, setChanged] = useState(false)
   const [values, originSetValues] = useState({
@@ -53,6 +60,11 @@ const DNS: React.FC = () => {
     nameserver,
     proxyServerNameserver,
     directNameserver,
+    fallback,
+    fallbackGeoip: fallbackFilter?.geoip || true,
+    fallbackGeoipCode: fallbackFilter?.['geoip-code'] || 'CN',
+    fallbackIpcidr: fallbackFilter?.ipcidr || ['240.0.0.0/4', '0.0.0.0/32'],
+    fallbackDomain: fallbackFilter?.domain || ['+.google.com', '+.facebook.com', '+.youtube.com'],
     useNameserverPolicy,
     nameserverPolicy: Object.entries(nameserverPolicy || {}).map(([domain, value]) => ({
       domain,
@@ -160,8 +172,13 @@ const DNS: React.FC = () => {
                 nameserver: values.nameserver,
                 'proxy-server-nameserver': values.proxyServerNameserver,
                 'direct-nameserver': values.directNameserver,
-                fallback: undefined,
-                'fallback-filter': undefined
+                fallback: values.fallback,
+                'fallback-filter': {
+                  geoip: values.fallbackGeoip,
+                  'geoip-code': values.fallbackGeoipCode,
+                  ipcidr: values.fallbackIpcidr,
+                  domain: values.fallbackDomain
+                }
               }
               if (values.useNameserverPolicy) {
                 dnsConfig['nameserver-policy'] = Object.fromEntries(
@@ -244,22 +261,22 @@ const DNS: React.FC = () => {
         </SettingItem>
 
         <div className="flex flex-col items-stretch">
-          <h3>{t('dns.defaultNameserver')}</h3>
+          <h3>{t('dns.defaultNameserver')} (default-nameserver)</h3>
           {renderListInputs('defaultNameserver', t('dns.defaultNameserverPlaceholder'))}
         </div>
         <Divider className="my-2" />
         <div className="flex flex-col items-stretch">
-          <h3>{t('dns.proxyServerNameserver')}</h3>
+          <h3>{t('dns.proxyServerNameserver')} (proxy-server-nameserver)</h3>
           {renderListInputs('proxyServerNameserver', t('dns.proxyServerNameserverPlaceholder'))}
         </div>
         <Divider className="my-2" />
         <div className="flex flex-col items-stretch">
-          <h3>{t('dns.nameserver')}</h3>
+          <h3>{t('dns.nameserver')} (nameserver)</h3>
           {renderListInputs('nameserver', t('dns.nameserverPlaceholder'))}
         </div>
         <Divider className="my-2" />
         <div className="flex flex-col items-stretch">
-          <h3>{t('dns.directNameserver')}</h3>
+          <h3>{t('dns.directNameserver')} (direct-nameserver)</h3>
           {renderListInputs('directNameserver', t('dns.directNameserverPlaceholder'))}
         </div>
         <Divider className="my-2" />
@@ -388,6 +405,42 @@ const DNS: React.FC = () => {
             ))}
           </div>
         )}
+        <Divider className="my-2" />
+        <div className="flex flex-col items-stretch">
+          <h3>{t('dns.fallback')}</h3>
+          {renderListInputs('fallback', t('dns.fallbackPlaceholder'))}
+        </div>
+      </SettingCard>
+      <SettingCard title={t('dns.fallbackFilter.title')}>
+        <SettingItem title={t('dns.fallbackFilter.geoip')} divider>
+          <Switch
+            size="sm"
+            isSelected={values.fallbackGeoip}
+            onValueChange={(v) => {
+              setValues({ ...values, fallbackGeoip: v })
+            }}
+          />
+        </SettingItem>
+        <SettingItem title={t('dns.fallbackFilter.geoipCode')} divider>
+          <Input
+            size="sm"
+            className="w-[100px]"
+            value={values.fallbackGeoipCode}
+            placeholder="CN"
+            onValueChange={(v) => {
+              setValues({ ...values, fallbackGeoipCode: v })
+            }}
+          />
+        </SettingItem>
+        <div className="flex flex-col items-stretch">
+          <h3>{t('dns.fallbackFilter.ipcidr')}</h3>
+          {renderListInputs('fallbackIpcidr', t('dns.fallbackFilter.ipcidrPlaceholder'))}
+        </div>
+        <Divider className="my-2" />
+        <div className="flex flex-col items-stretch">
+          <h3>{t('dns.fallbackFilter.domain')}</h3>
+          {renderListInputs('fallbackDomain', t('dns.fallbackFilter.domainPlaceholder'))}
+        </div>
       </SettingCard>
     </BasePage>
   )

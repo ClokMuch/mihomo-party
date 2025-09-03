@@ -22,7 +22,7 @@ import {
   defaultProfileConfig
 } from './template'
 import yaml from 'yaml'
-import { mkdir, writeFile, rm, readdir, cp, stat } from 'fs/promises'
+import { mkdir, writeFile, rm, readdir, cp, stat, rename } from 'fs/promises'
 import { existsSync } from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
@@ -185,7 +185,7 @@ async function initFiles(): Promise<void> {
     copy('geoip.dat'),
     copy('geosite.dat'),
     copy('ASN.mmdb'),
-    copy('sub-store.bundle.js'),
+    copy('sub-store.bundle.cjs'),
     copy('sub-store-frontend')
   ])
 }
@@ -214,6 +214,19 @@ async function cleanup(): Promise<void> {
       } catch {
         // ignore
       }
+    }
+  }
+}
+
+async function migrateSubStoreFiles(): Promise<void> {
+  const oldJsPath = path.join(mihomoWorkDir(), 'sub-store.bundle.js')
+  const newCjsPath = path.join(mihomoWorkDir(), 'sub-store.bundle.cjs')
+  
+  if (existsSync(oldJsPath) && !existsSync(newCjsPath)) {
+    try {
+      await rename(oldJsPath, newCjsPath)
+    } catch (error) {
+      await initLogger.error('Failed to rename sub-store.bundle.js to sub-store.bundle.cjs', error)
     }
   }
 }
@@ -250,7 +263,8 @@ async function migration(): Promise<void> {
     authentication,
     'bind-address': bindAddress,
     'lan-allowed-ips': lanAllowedIps,
-    'lan-disallowed-ips': lanDisallowedIps
+    'lan-disallowed-ips': lanDisallowedIps,
+    tun
   } = await getControledMihomoConfig()
   // add substore sider card
   if (useSubStore && !siderOrder.includes('substore')) {
@@ -258,7 +272,13 @@ async function migration(): Promise<void> {
   }
   // add default skip auth prefix
   if (!skipAuthPrefixes) {
-    await patchControledMihomoConfig({ 'skip-auth-prefixes': ['127.0.0.1/32'] })
+    await patchControledMihomoConfig({ 'skip-auth-prefixes': ['127.0.0.1/32', '::1/128'] })
+  } else if (skipAuthPrefixes.length >= 1 && skipAuthPrefixes[0] === '127.0.0.1/32') {
+    const filteredPrefixes = skipAuthPrefixes.filter(ip => ip !== '::1/128')
+    const newPrefixes = [filteredPrefixes[0], '::1/128', ...filteredPrefixes.slice(1)]
+    if (JSON.stringify(newPrefixes) !== JSON.stringify(skipAuthPrefixes)) {
+      await patchControledMihomoConfig({ 'skip-auth-prefixes': newPrefixes })
+    }
   }
   // add default authentication
   if (!authentication) {
@@ -275,6 +295,16 @@ async function migration(): Promise<void> {
   // add default lan disallowed ips
   if (!lanDisallowedIps) {
     await patchControledMihomoConfig({ 'lan-disallowed-ips': [] })
+  }
+  // default tun device
+  if (!tun?.device || (process.platform === 'darwin' && tun.device === 'Mihomo')) {
+    const defaultDevice = process.platform === 'darwin' ? 'utun1500' : 'Mihomo'
+    await patchControledMihomoConfig({
+      tun: {
+        ...tun,
+        device: defaultDevice
+      }
+    })
   }
   // remove custom app theme
   if (!['system', 'light', 'dark'].includes(appTheme)) {
@@ -323,6 +353,7 @@ export async function initBasic(): Promise<void> {
   await initDirs()
   await initConfig()
   await migration()
+  await migrateSubStoreFiles()
   await initFiles()
   await cleanup()
 }

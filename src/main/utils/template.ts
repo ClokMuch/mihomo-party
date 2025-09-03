@@ -9,6 +9,7 @@ export const defaultConfig: IAppConfig = {
   appTheme: 'system',
   useWindowFrame: false,
   proxyInTray: true,
+  disableTrayIconColor: false,
   maxLogDays: 7,
   proxyCols: 'auto',
   connectionDirection: 'asc',
@@ -22,6 +23,7 @@ export const defaultConfig: IAppConfig = {
   controlDns: true,
   controlSniff: true,
   floatingWindowCompatMode: true,
+  disableHardwareAcceleration: false,
   disableLoopbackDetector: false,
   disableEmbedCA: false,
   disableSystemCA: false,
@@ -64,7 +66,7 @@ export const defaultControledMihomoConfig: Partial<IMihomoConfig> = {
   'lan-allowed-ips': ['0.0.0.0/0', '::/0'],
   'lan-disallowed-ips': [],
   authentication: [],
-  'skip-auth-prefixes': ['127.0.0.1/32'],
+  'skip-auth-prefixes': ['127.0.0.1/32', '::1/128'],
   tun: {
     enable: false,
     device: process.platform === 'darwin' ? 'utun1500' : 'Mihomo',
@@ -84,10 +86,18 @@ export const defaultControledMihomoConfig: Partial<IMihomoConfig> = {
     'fake-ip-filter': ['*', '+.lan', '+.local', 'time.*.com', 'ntp.*.com', '+.market.xiaomi.com'],
     'use-hosts': false,
     'use-system-hosts': false,
+    'respect-rules': false,
     'default-nameserver': ['tls://223.5.5.5'],
-    nameserver: ['https://120.53.53.53/dns-query', 'https://223.5.5.5/dns-query'],
-    'proxy-server-nameserver': ['https://120.53.53.53/dns-query', 'https://223.5.5.5/dns-query'],
-    'direct-nameserver': []
+    nameserver: ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
+    'proxy-server-nameserver': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
+    'direct-nameserver': [],
+    fallback: [],
+    'fallback-filter': {
+      geoip: true,
+      'geoip-code': 'CN',
+      ipcidr: ['240.0.0.0/4', '0.0.0.0/32'],
+      domain: ['+.google.com', '+.facebook.com', '+.youtube.com']
+    }
   },
   sniffer: {
     enable: true,

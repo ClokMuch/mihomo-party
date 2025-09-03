@@ -48,7 +48,7 @@ const Mihomo: React.FC = () => {
     'external-controller': externalController = '',
     secret,
     authentication = [],
-    'skip-auth-prefixes': skipAuthPrefixes = ['127.0.0.1/32'],
+    'skip-auth-prefixes': skipAuthPrefixes = ['127.0.0.1/32', '::1/128'],
     'log-level': logLevel = 'info',
     'find-process-mode': findProcessMode = 'strict',
     'allow-lan': allowLan,
@@ -232,7 +232,18 @@ const Mihomo: React.FC = () => {
             {enableSmartCore && core === 'mihomo-smart' && (
               <>
                 <SettingItem
-                  title={t('mihomo.smartCoreUseLightGBM')}
+                  title={
+                    <div className="flex items-center gap-2">
+                      <span>{t('mihomo.smartCoreUseLightGBM')}</span>
+                      <Tooltip
+                        content={t('mihomo.smartCoreUseLightGBMTooltip')}
+                        placement="top"
+                        className="max-w-xs"
+                      >
+                        <IoMdInformationCircleOutline className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 cursor-help" />
+                      </Tooltip>
+                    </div>
+                  }
                   divider
                 >
                   <Switch
@@ -247,7 +258,18 @@ const Mihomo: React.FC = () => {
                 </SettingItem>
 
                 <SettingItem
-                  title={t('mihomo.smartCoreCollectData')}
+                  title={
+                    <div className="flex items-center gap-2">
+                      <span>{t('mihomo.smartCoreCollectData')}</span>
+                      <Tooltip
+                        content={t('mihomo.smartCoreCollectDataTooltip')}
+                        placement="top"
+                        className="max-w-xs"
+                      >
+                        <IoMdInformationCircleOutline className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 cursor-help" />
+                      </Tooltip>
+                    </div>
+                  }
                   divider
                 >
                   <Switch
@@ -721,7 +743,7 @@ const Mihomo: React.FC = () => {
               return (
                 <div key={index} className="flex mb-2">
                   <Input
-                    disabled={index === 0}
+                    disabled={index === 0 || index === 1}
                     size="sm"
                     fullWidth
                     placeholder={t('mihomo.ipSegment.placeholder')}
@@ -736,7 +758,7 @@ const Mihomo: React.FC = () => {
                       }
                     }}
                   />
-                  {index < skipAuthPrefixesInput.length && index !== 0 && (
+                  {index < skipAuthPrefixesInput.length && index !== 0 && index !== 1 && (
                     <Button
                       className="ml-2"
                       size="sm"

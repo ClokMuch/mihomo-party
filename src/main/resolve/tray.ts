@@ -7,14 +7,15 @@ import {
   patchControledMihomoConfig
 } from '../config'
 import icoIcon from '../../../resources/icon.ico?asset'
+import icoIconBlue from '../../../resources/icon_blue.ico?asset'
+import icoIconRed from '../../../resources/icon_red.ico?asset'
+import icoIconGreen from '../../../resources/icon_green.ico?asset'
 import pngIcon from '../../../resources/icon.png?asset'
+import pngIconBlue from '../../../resources/icon_blue.png?asset'
+import pngIconRed from '../../../resources/icon_red.png?asset'
+import pngIconGreen from '../../../resources/icon_green.png?asset'
 import templateIcon from '../../../resources/iconTemplate.png?asset'
-import {
-  mihomoChangeProxy,
-  mihomoCloseAllConnections,
-  mihomoGroups,
-  patchMihomoConfig
-} from '../core/mihomoApi'
+import { mihomoChangeProxy, mihomoCloseAllConnections, mihomoGroups, patchMihomoConfig, getTrayIconStatus, calculateTrayIconStatus } from '../core/mihomoApi'
 import { mainWindow, showMainWindow, triggerMainWindow } from '..'
 import { app, clipboard, ipcMain, Menu, nativeImage, shell, Tray } from 'electron'
 import { dataDir, logDir, mihomoCoreDir, mihomoWorkDir } from '../utils/dirs'
@@ -120,6 +121,7 @@ export const buildContextMenu = async (): Promise<Menu> => {
         mainWindow?.webContents.send('controledMihomoConfigUpdated')
         mainWindow?.webContents.send('groupsUpdated')
         ipcMain.emit('updateTrayMenu')
+        await updateTrayIcon()
       }
     },
     {
@@ -134,6 +136,7 @@ export const buildContextMenu = async (): Promise<Menu> => {
         mainWindow?.webContents.send('controledMihomoConfigUpdated')
         mainWindow?.webContents.send('groupsUpdated')
         ipcMain.emit('updateTrayMenu')
+        await updateTrayIcon()
       }
     },
     {
@@ -148,6 +151,7 @@ export const buildContextMenu = async (): Promise<Menu> => {
         mainWindow?.webContents.send('controledMihomoConfigUpdated')
         mainWindow?.webContents.send('groupsUpdated')
         ipcMain.emit('updateTrayMenu')
+        await updateTrayIcon()
       }
     },
     { type: 'separator' },
@@ -167,6 +171,7 @@ export const buildContextMenu = async (): Promise<Menu> => {
           // ignore
         } finally {
           ipcMain.emit('updateTrayMenu')
+          await updateTrayIcon()
         }
       }
     },
@@ -219,6 +224,7 @@ export const buildContextMenu = async (): Promise<Menu> => {
           // ignore
         } finally {
           ipcMain.emit('updateTrayMenu')
+          await updateTrayIcon()
         }
       }
     },
@@ -237,6 +243,7 @@ export const buildContextMenu = async (): Promise<Menu> => {
             await changeCurrentProfile(item.id)
             mainWindow?.webContents.send('profileConfigUpdated')
             ipcMain.emit('updateTrayMenu')
+            await updateTrayIcon()
           }
         }
       })
@@ -335,8 +342,11 @@ export async function createTray(): Promise<void> {
   if (process.platform === 'win32') {
     tray = new Tray(icoIcon)
   }
-  tray?.setToolTip('Mihomo Party')
+  tray?.setToolTip('Clash Party')
   tray?.setIgnoreDoubleClickEvents(true)
+
+  await updateTrayIcon()
+
   if (process.platform === 'darwin') {
     if (!useDockIcon) {
       hideDockIcon()
@@ -427,5 +437,69 @@ export async function showDockIcon(): Promise<void> {
 export async function hideDockIcon(): Promise<void> {
   if (process.platform === 'darwin' && app.dock && app.dock.isVisible()) {
     app.dock.hide()
+  }
+}
+
+const getIconPaths = () => {
+  if (process.platform === 'win32') {
+    return {
+      white: icoIcon,
+      blue: icoIconBlue,
+      green: icoIconGreen,
+      red: icoIconRed
+    }
+  } else {
+    return {
+      white: pngIcon,
+      blue: pngIconBlue,
+      green: pngIconGreen,
+      red: pngIconRed
+    }
+  }
+}
+
+export function updateTrayIconImmediate(sysProxyEnabled: boolean, tunEnabled: boolean): void {
+  if (!tray) return
+
+  const status = calculateTrayIconStatus(sysProxyEnabled, tunEnabled)
+  const iconPaths = getIconPaths()
+  
+  getAppConfig().then(({ disableTrayIconColor = false }) => {
+    if (!tray) return
+    const iconPath = disableTrayIconColor ? iconPaths.white : iconPaths[status]
+    try {
+      if (process.platform === 'darwin') {
+        const icon = nativeImage.createFromPath(iconPath).resize({ height: 16 })
+        tray.setImage(icon)
+      } else if (process.platform === 'win32') {
+        tray.setImage(iconPath)
+      } else if (process.platform === 'linux') {
+        tray.setImage(iconPath)
+      }
+    } catch (error) {
+      console.error('更新托盘图标失败:', error)
+    }
+  })
+}
+
+export async function updateTrayIcon(): Promise<void> {
+  if (!tray) return
+
+  const { disableTrayIconColor = false } = await getAppConfig()
+  const status = await getTrayIconStatus()
+  const iconPaths = getIconPaths()
+  const iconPath = disableTrayIconColor ? iconPaths.white : iconPaths[status]
+
+  try {
+    if (process.platform === 'darwin') {
+      const icon = nativeImage.createFromPath(iconPath).resize({ height: 16 })
+      tray.setImage(icon)
+    } else if (process.platform === 'win32') {
+      tray.setImage(iconPath)
+    } else if (process.platform === 'linux') {
+      tray.setImage(iconPath)
+    }
+  } catch (error) {
+    console.error('更新托盘图标失败:', error)
   }
 }

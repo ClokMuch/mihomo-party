@@ -1,17 +1,26 @@
 import yaml from 'yaml'
 import { readFileSync, writeFileSync } from 'fs'
+import { getProcessedVersion, isDevBuild, getDownloadUrl, generateDownloadLinksMarkdown } from './version-utils.mjs'
 
 const pkg = readFileSync('package.json', 'utf-8')
 let changelog = readFileSync('changelog.md', 'utf-8')
 const { version } = JSON.parse(pkg)
 const downloadUrl = `https://github.com/ClokMuch/mihomo-party/releases/download/v${version}`
+const { version: packageVersion } = JSON.parse(pkg)
+
+// 获取处理后的版本号
+const version = getProcessedVersion()
+const isDev = isDevBuild()
+const downloadUrl = getDownloadUrl(isDev, version)
+
 const latest = {
   version,
   changelog
 }
 
-changelog += '\n### 下载地址：\n\n#### Windows10/11：\n\n'
-changelog += `- 便携版：[64位](${downloadUrl}/mihomo-party-windows-${version}-x64-portable.7z) | [32位](${downloadUrl}/mihomo-party-windows-${version}-ia32-portable.7z) | [ARM64](${downloadUrl}/mihomo-party-windows-${version}-arm64-portable.7z)\n\n`
+// 使用统一的下载链接生成函数
+changelog += generateDownloadLinksMarkdown(downloadUrl, version)
+
 
 writeFileSync('latest.yml', yaml.stringify(latest))
 writeFileSync('changelog.md', changelog)

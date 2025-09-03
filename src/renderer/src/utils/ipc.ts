@@ -167,6 +167,10 @@ export async function addProfileUpdater(item: IProfileItem): Promise<void> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('addProfileUpdater', item))
 }
 
+export async function removeProfileUpdater(id: string): Promise<void> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('removeProfileUpdater', id))
+}
+
 export async function getProfileStr(id: string): Promise<string> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('getProfileStr', id))
 }
@@ -400,6 +404,14 @@ export async function showTrayIcon(): Promise<void> {
 
 export async function closeTrayIcon(): Promise<void> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('closeTrayIcon'))
+}
+
+export async function updateTrayIcon(): Promise<void> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('updateTrayIcon'))
+}
+
+export function updateTrayIconImmediate(sysProxyEnabled: boolean, tunEnabled: boolean): void {
+  window.electron.ipcRenderer.invoke('updateTrayIconImmediate', sysProxyEnabled, tunEnabled)
 }
 
 export async function showMainWindow(): Promise<void> {

@@ -237,6 +237,7 @@ interface IAppConfig {
   disableTray?: boolean
   showFloatingWindow?: boolean
   floatingWindowCompatMode?: boolean
+  disableHardwareAcceleration?: boolean
   connectionCardStatus?: CardStatus
   dnsCardStatus?: CardStatus
   logCardStatus?: CardStatus
@@ -286,6 +287,8 @@ interface IAppConfig {
   controlSniff?: boolean
   useDockIcon?: boolean
   showTraffic?: boolean
+  disableTrayIconColor?: boolean
+  disableAnimations?: boolean
   webdavUrl?: string
   webdavDir?: string
   webdavUsername?: string
