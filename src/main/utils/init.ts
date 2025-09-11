@@ -21,7 +21,7 @@ import {
   defaultProfile,
   defaultProfileConfig
 } from './template'
-import yaml from 'yaml'
+import { stringify } from './yaml'
 import { mkdir, writeFile, rm, readdir, cp, stat, rename } from 'fs/promises'
 import { existsSync } from 'fs'
 import { exec } from 'child_process'
@@ -43,6 +43,8 @@ import { app, dialog } from 'electron'
 import { startSSIDCheck } from '../sys/ssid'
 import i18next from '../../shared/i18n'
 import { initLogger } from './logger'
+
+let isInitBasicCompleted = false
 
 // 安全错误处理
 export function safeShowErrorBox(titleKey: string, message: string): void {
@@ -134,7 +136,7 @@ async function initConfig(): Promise<void> {
   for (const config of configs) {
     try {
       if (!existsSync(config.path)) {
-        await writeFile(config.path, yaml.stringify(config.content))
+        await writeFile(config.path, stringify(config.content))
       }
     } catch (error) {
       await initLogger.error(`Failed to create ${config.name} at ${config.path}`, error)
@@ -350,16 +352,21 @@ function initDeeplink(): void {
 
 // 基础初始化
 export async function initBasic(): Promise<void> {
+  if (isInitBasicCompleted) {
+    return
+  }
+
   await initDirs()
   await initConfig()
   await migration()
   await migrateSubStoreFiles()
   await initFiles()
   await cleanup()
+
+  isInitBasicCompleted = true
 }
 
 export async function init(): Promise<void> {
-  await initBasic()
   await startSubStoreFrontendServer()
   await startSubStoreBackendServer()
   const { sysProxy } = await getAppConfig()

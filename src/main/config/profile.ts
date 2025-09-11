@@ -6,18 +6,20 @@ import { restartCore } from '../core/manager'
 import { getAppConfig } from './app'
 import { existsSync } from 'fs'
 import axios, { AxiosResponse } from 'axios'
-import yaml from 'yaml'
+import { parse, stringify } from '../utils/yaml'
 import { defaultProfile } from '../utils/template'
 import { subStorePort } from '../resolve/server'
 import { join } from 'path'
 import { app } from 'electron'
 
 let profileConfig: IProfileConfig // profile.yaml
+// 最终选中订阅ID
+let targetProfileId: string | null = null
 
 export async function getProfileConfig(force = false): Promise<IProfileConfig> {
   if (force || !profileConfig) {
     const data = await readFile(profileConfigPath(), 'utf-8')
-    profileConfig = yaml.parse(data, { merge: true }) || { items: [] }
+    profileConfig = parse(data) || { items: [] }
   }
   if (typeof profileConfig !== 'object') profileConfig = { items: [] }
   return profileConfig
@@ -25,7 +27,7 @@ export async function getProfileConfig(force = false): Promise<IProfileConfig> {
 
 export async function setProfileConfig(config: IProfileConfig): Promise<void> {
   profileConfig = config
-  await writeFile(profileConfigPath(), yaml.stringify(config), 'utf-8')
+  await writeFile(profileConfigPath(), stringify(config), 'utf-8')
 }
 
 export async function getProfileItem(id: string | undefined): Promise<IProfileItem | undefined> {
@@ -38,20 +40,33 @@ export async function changeCurrentProfile(id: string): Promise<void> {
   const config = await getProfileConfig()
   const current = config.current
 
-  if (current === id) {
+  if (current === id && targetProfileId !== id) {
     return
   }
 
+  targetProfileId = id
+
   config.current = id
-  await setProfileConfig(config)
+  const configSavePromise = setProfileConfig(config)
 
   try {
+    await configSavePromise
+
+    // 检查订阅切换是否中断
+    if (targetProfileId !== id) {
+      return
+    }
     await restartCore()
+    if (targetProfileId === id) {
+      targetProfileId = null
+    }
   } catch (e) {
-    // 如果重启失败，恢复原来的配置
-    config.current = current
-    await setProfileConfig(config)
-    throw e
+    if (targetProfileId === id) {
+      config.current = current
+      await setProfileConfig(config)
+      targetProfileId = null
+      throw e
+    }
   }
 }
 
@@ -129,7 +144,7 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
   } as IProfileItem
   switch (newItem.type) {
     case 'remote': {
-      const { userAgent } = await getAppConfig()
+      const { userAgent, subscriptionTimeout = 30000 } = await getAppConfig()
       const { 'mixed-port': mixedPort = 7890 } = await getControledMihomoConfig()
       if (!item.url) throw new Error('Empty URL')
       let res: AxiosResponse
@@ -146,7 +161,8 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
           headers: {
             'User-Agent': userAgent || `mihomo.party/v${app.getVersion()} (clash.meta)`
           },
-          responseType: 'text'
+          responseType: 'text',
+          timeout: subscriptionTimeout
         })
       } else {
         res = await axios.get(item.url, {
@@ -160,7 +176,8 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
           headers: {
             'User-Agent': userAgent || `mihomo.party/v${app.getVersion()} (clash.meta)`
           },
-          responseType: 'text'
+          responseType: 'text',
+          timeout: subscriptionTimeout
         })
       }
 
@@ -196,24 +213,22 @@ export async function getProfileStr(id: string | undefined): Promise<string> {
   if (existsSync(profilePath(id || 'default'))) {
     return await readFile(profilePath(id || 'default'), 'utf-8')
   } else {
-    return yaml.stringify(defaultProfile)
+    return stringify(defaultProfile)
   }
 }
 
 export async function setProfileStr(id: string, content: string): Promise<void> {
-  const { current } = await getProfileConfig()
+  // 读取最新的配置
+  const { current } = await getProfileConfig(true)
   await writeFile(profilePath(id), content, 'utf-8')
   if (current === id) await restartCore()
 }
 
 export async function getProfile(id: string | undefined): Promise<IMihomoConfig> {
   const profile = await getProfileStr(id)
-  
-  // 替换 防止错误使用科学记数法解析
-  const patchedProfile = profile.replace(/(\w+:\s*)(\d+E\d+)(\s|$)/gi, '$1"$2"$3')
-  let result = yaml.parse(patchedProfile, { merge: true }) || {}
+  let result = parse(profile)
   if (typeof result !== 'object') result = {}
-  return result
+  return result as IMihomoConfig
 }
 
 // attachment;filename=xxx.yaml; filename*=UTF-8''%xx%xx%xx

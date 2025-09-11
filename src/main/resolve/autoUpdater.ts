@@ -1,5 +1,5 @@
 import axios from 'axios'
-import yaml from 'yaml'
+import { parse } from '../utils/yaml'
 import { app, shell } from 'electron'
 import { getControledMihomoConfig } from '../config'
 import { dataDir, exeDir, exePath, isPortable, resourcesFilesDir } from '../utils/dirs'
@@ -26,7 +26,7 @@ export async function checkUpdate(): Promise<IAppVersion | undefined> {
       responseType: 'text'
     }
   )
-  const latest = yaml.parse(res.data, { merge: true }) as IAppVersion
+  const latest = parse(res.data) as IAppVersion
   const currentVersion = app.getVersion()
   if (compareVersions(latest.version, currentVersion) > 0) {
     return latest
@@ -57,11 +57,11 @@ export async function downloadAndInstallUpdate(version: string): Promise<void> {
   const { 'mixed-port': mixedPort = 7890 } = await getControledMihomoConfig()
   const baseUrl = `https://github.com/ClokMuch/mihomo-party/releases/download/v${version}/`
   const fileMap = {
-    'win32-x64': `mihomo-party-windows-${version}-x64-setup.exe`,
-    'win32-ia32': `mihomo-party-windows-${version}-ia32-setup.exe`,
-    'win32-arm64': `mihomo-party-windows-${version}-arm64-setup.exe`,
-    'darwin-x64': `mihomo-party-macos-${version}-x64.pkg`,
-    'darwin-arm64': `mihomo-party-macos-${version}-arm64.pkg`
+    'win32-x64': `clash-party-windows-${version}-x64-setup.exe`,
+    'win32-ia32': `clash-party-windows-${version}-ia32-setup.exe`,
+    'win32-arm64': `clash-party-windows-${version}-arm64-setup.exe`,
+    'darwin-x64': `clash-party-macos-${version}-x64.pkg`,
+    'darwin-arm64': `clash-party-macos-${version}-arm64.pkg`
   }
   let file = fileMap[`${process.platform}-${process.arch}`]
   if (isPortable()) {
